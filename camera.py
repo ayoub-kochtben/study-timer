@@ -103,13 +103,41 @@ class AnalysisWorker(threading.Thread):
         except Exception as error:  # jamais de crash silencieux du thread
             self.on_error(f"Erreur inattendue dans l'analyse : {error}")
 
+    # Nombre d'erreurs consécutives tolérées avant de déclarer le fil
+    # mort (une erreur ponctuelle, ex. image corrompue, ne doit pas
+    # arrêter la surveillance).
+    MAX_CONSECUTIVE_ERRORS = 5
+
     def _loop(self, camera: Camera) -> None:
         next_tick = time.monotonic()
+        consecutive_errors = 0
         while not self._stop_event.is_set():
-            frame = camera.read()
-            now_wall = datetime.now()
-            timestamp_ms = int(time.monotonic() * 1000)  # croissant, exigé MediaPipe
-            result = self.detector.analyze(frame, timestamp_ms, now_wall)
+            try:
+                frame = camera.read()
+                now_wall = datetime.now()
+                timestamp_ms = int(time.monotonic() * 1000)  # croissant, exigé MediaPipe
+                result = self.detector.analyze(frame, timestamp_ms, now_wall)
+            except CameraError:
+                raise  # panne caméra réelle : arrêt propre via run()
+            except Exception:
+                consecutive_errors += 1
+                if consecutive_errors >= self.MAX_CONSECUTIVE_ERRORS:
+                    # Le fil meurt : on clôture l'intervalle en cours
+                    # pour ne perdre que la petite BUG seconde récente,
+                    # puis on remonte l'erreur à l'interface.
+                    try:
+                        self.engine.stop(datetime.now())
+                    except Exception:
+                        pass
+                    raise
+                next_tick += self._period
+                delay = next_tick - time.monotonic()
+                if delay > 0:
+                    time.sleep(delay)
+                else:
+                    next_tick = time.monotonic()
+                continue
+            consecutive_errors = 0
             state = self.engine.process(result.observation)
             update = AnalysisUpdate(state=state, result=result)
             if self.send_frames.is_set():

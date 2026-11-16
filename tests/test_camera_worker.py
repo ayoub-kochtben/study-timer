@@ -2,7 +2,7 @@ import os
 import sys
 import threading
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import numpy as np
 
@@ -10,7 +10,49 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from camera import AnalysisWorker
 from detection import FrameResult
-from engine import Observation, StudyEngine
+from engine import Observation, Reason, StudyEngine
+
+
+def test_stop_while_processing_does_not_corrupt_state():
+    """Régression : stop (thread interface) pendant process (thread
+    d'analyse) corrompait l'état — le compteur repartait de mal (bug
+    « redémarre à 1,36 s »). L'intervalle doit rester cohérent."""
+    intervals = []
+    T0 = datetime(2026, 11, 17, 9, 0, 0)
+    engine = StudyEngine(frames_to_change_state=1, on_interval=lambda s, e: intervals.append((s, e)))
+    engine.start(T0)
+
+    stopper_hit = threading.Event()
+    release = threading.Event()
+
+    original_apply = engine._apply_transition
+
+    def slow_apply(target, now):
+        if target and not stopper_hit.is_set():  # première ouverture
+            stopper_hit.set()
+            release.wait(timeout=5)  # stop() va tenter de passer pendant
+        original_apply(target, now)
+
+    engine._apply_transition = slow_apply
+
+    def obs(t):
+        return Observation(face_found=True, forbidden_in_hand=False, timestamp=t)
+
+    processor = threading.Thread(target=lambda: engine.process(obs(T0)))
+    processor.start()
+    stopper_hit.wait(timeout=5)
+    stopper = threading.Thread(target=lambda: engine.stop(T0 + timedelta(seconds=10)))
+    stopper.start()
+    release.set()
+    processor.join(timeout=5)
+    stopper.join(timeout=5)
+
+    # Invariants après la course : état cohérent, intervalle clôturé
+    # une seule fois, jamais à l'envers.
+    assert engine.counting is False
+    assert engine.interval_start is None
+    assert len(intervals) == 1
+    assert intervals[0][1] > intervals[0][0]
 
 
 class FakeCamera:
@@ -106,6 +148,62 @@ def test_activating_frames_mid_flight():
         time.sleep(0.01)
     worker.stop()
     assert any(update.frame is not None for update in updates)
+
+
+def test_worker_survives_transient_errors_then_recovers():
+    """Une erreur ponctuelle ne doit pas tuer l'analyse."""
+    calls = {"n": 0}
+
+    class FlakyDetector:
+        def analyze(self, frame, ts, wall):
+            calls["n"] += 1
+            if calls["n"] in (1, 2, 3):
+                raise RuntimeError("raté une fois")
+            return FrameResult(
+                observation=Observation(face_found=True, forbidden_in_hand=False, timestamp=wall)
+            )
+
+    updates = []
+    engine = StudyEngine()
+    engine.start(datetime.now())
+    worker = AnalysisWorker(
+        0, FlakyDetector(), engine, lambda u: updates.append(u),
+        lambda m: None, analysis_fps=200,
+        camera_factory=lambda index: FakeCamera(),
+    )
+    worker.start()
+    deadline = time.monotonic() + 5
+    while calls["n"] < 6 and time.monotonic() < deadline:
+        time.sleep(0.01)
+    worker.stop()
+    assert calls["n"] >= 6  # l'analyse a continué après les erreurs
+    assert len(updates) >= 3  # et des résultats continuent d'arriver
+
+
+def test_worker_reports_and_closes_interval_after_persistent_failure():
+    """Panne durable : erreur remontée ET intervalle clôturé (pas de
+    compteur repris de zéro sans avoir sauvegardé le temps écoulé)."""
+    intervals = []
+    engine = StudyEngine(on_interval=lambda s, e: intervals.append((s, e)))
+    engine.start(datetime.now())
+
+    class BrokenDetector:
+        def analyze(self, frame, ts, wall):
+            raise RuntimeError("panne durable")
+
+    errors = []
+    worker = AnalysisWorker(
+        0, BrokenDetector(), engine, lambda u: None,
+        errors.append, analysis_fps=200,
+        camera_factory=lambda index: FakeCamera(),
+    )
+    worker.start()
+    worker.join(timeout=8)
+    assert not worker.is_alive()
+    assert errors, "l'erreur doit être remontée à l'interface"
+    # Le moteur a fermé l'intervalle ouvert avant la panne (ici aucun,
+    # mais stop() ne doit pas lever ni laisser un état incohérent).
+    assert engine.counting is False
 
 
 def test_worker_survives_analyzing_error_and_reports():

@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
 from typing import Callable, Optional
+import threading
 
 
 class Reason(Enum):
@@ -48,6 +49,11 @@ class StudyEngine:
             raise ValueError("frames_to_change_state doit valoir au moins 1")
         self.frames_to_change_state = frames_to_change_state
         self.on_interval = on_interval
+        # Verrou unique : process() (thread d'analyse) et stop()/start()
+        # (thread de l'interface) ne doivent jamais s'entremêler, sinon
+        # un intervalle peut être clôturé deux fois ou avec une borne
+        # incohérente — et le compteur repart de mal à la reprise.
+        self._lock = threading.Lock()
         self.counting = False
         self.reason: Optional[Reason] = None
         self.interval_start: Optional[datetime] = None
@@ -57,40 +63,43 @@ class StudyEngine:
     # ------------------------------------------------------------------ #
     def process(self, obs: Observation) -> EngineState:
         """Avance la machine avec le résultat d'une image analysée."""
-        should_count = obs.face_found and not obs.forbidden_in_hand
-        self.reason = None if should_count else self._blocking_reason(obs)
+        with self._lock:
+            should_count = obs.face_found and not obs.forbidden_in_hand
+            self.reason = None if should_count else self._blocking_reason(obs)
 
-        if should_count != self._pending_counting:
-            self._pending_counting = should_count
-            self._pending_count = 1
-        else:
-            self._pending_count += 1
+            if should_count != self._pending_counting:
+                self._pending_counting = should_count
+                self._pending_count = 1
+            else:
+                self._pending_count += 1
 
-        changed = False
-        if self._pending_count >= self.frames_to_change_state and should_count != self.counting:
-            self._apply_transition(should_count, obs.timestamp)
-            changed = True
+            changed = False
+            if self._pending_count >= self.frames_to_change_state and should_count != self.counting:
+                self._apply_transition(should_count, obs.timestamp)
+                changed = True
 
-        return EngineState(self.counting, self.reason, self.interval_start, changed)
+            return EngineState(self.counting, self.reason, self.interval_start, changed)
 
     # ------------------------------------------------------------------ #
     def start(self, now: datetime) -> None:
         """Démarre la surveillance (aucun intervalle ouvert tant que les
         conditions ne sont pas réunies)."""
-        self.counting = False
-        self.interval_start = None
-        self._pending_counting = None
-        self._pending_count = 0
-        self.reason = Reason.FACE_MISSING
+        with self._lock:
+            self.counting = False
+            self.interval_start = None
+            self._pending_counting = None
+            self._pending_count = 0
+            self.reason = Reason.FACE_MISSING
 
     def stop(self, now: datetime) -> None:
         """Arrêt demandé par l'utilisateur : clôture l'intervalle en cours."""
-        self._close_interval(now)
-        self.counting = False
-        self.interval_start = None
-        self._pending_counting = None
-        self._pending_count = 0
-        self.reason = Reason.FACE_MISSING
+        with self._lock:
+            self._close_interval(now)
+            self.counting = False
+            self.interval_start = None
+            self._pending_counting = None
+            self._pending_count = 0
+            self.reason = Reason.FACE_MISSING
 
     # ------------------------------------------------------------------ #
     def _blocking_reason(self, obs: Observation) -> Reason:
