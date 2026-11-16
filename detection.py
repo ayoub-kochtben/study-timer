@@ -118,9 +118,11 @@ class Detector:
         )
 
         hand_result = self._hand_landmarker.detect_for_video(mp_image, timestamp_ms)
+        # hand_landmarks est une liste de mains, chaque main étant déjà une
+        # liste de 21 points normalisés (pas d'attribut .landmarks ici).
         hands_px = [
-            _landmarks_to_pixels(h.landmarks, width, height)
-            for h in hand_result.hand_landmarks
+            _landmarks_to_pixels(hand, width, height)
+            for hand in hand_result.hand_landmarks
         ]
 
         forbidden_boxes: List[Tuple[int, int, int, int]] = []
