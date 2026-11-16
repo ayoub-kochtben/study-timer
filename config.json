@@ -3,6 +3,8 @@
     "cell phone"
   ],
   "yolo_confidence": 0.4,
+  "face_min_confidence": 0.6,
+  "face_min_box_fraction": 0.04,
   "hand_overlap_threshold": 0.3,
   "hand_overlap_margin": 0.15,
   "analysis_fps": 8,

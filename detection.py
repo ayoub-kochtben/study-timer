@@ -12,7 +12,7 @@ jamais écrite sur disque.
 import os
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 import cv2
 import mediapipe as mp
@@ -27,16 +27,25 @@ _DIR = os.path.dirname(os.path.abspath(__file__))
 _MP_IMAGE = mp.Image
 _MP_FORMAT = mp.ImageFormat
 
+# Couleurs BGR pour le mode debug.
+_COLOR_FACE = (0, 255, 0)        # vert
+_COLOR_PHONE = (0, 0, 255)       # rouge
+_COLOR_HAND = (0, 165, 255)      # orange
+
 
 @dataclass
 class FrameResult:
-    """Résultat complet d'une image : moteur + détails pour l'affichage."""
+    """Résultat complet d'une image : moteur + détails pour l'affichage debug.
+
+    visage, téléphones et mains sont détectés et rapportés séparément.
+    """
 
     observation: Observation
     face_found: bool = False
     face_score: float = 0.0
-    hands_count: int = 0
-    forbidden_boxes: List[Tuple[int, int, int, int]] = field(default_factory=list)
+    face_box: Optional[Tuple[int, int, int, int]] = None
+    phone_boxes: List[Tuple[int, int, int, int]] = field(default_factory=list)
+    hand_boxes: List[Tuple[int, int, int, int]] = field(default_factory=list)
 
 
 def _landmarks_to_pixels(landmarks, width: int, height: int):
@@ -60,6 +69,69 @@ def _coverage_ratio(points, box) -> float:
     x1, y1, x2, y2 = box
     inside = sum(1 for (x, y) in points if x1 <= x <= x2 and y1 <= y <= y2)
     return inside / len(points)
+
+
+def select_face(detections, width: int, height: int, min_confidence: float,
+                min_box_fraction: float) -> Optional[Tuple[int, int, int, int]]:
+    """Choisit la meilleure détection de visage parmi celles du détecteur.
+
+    Une détection n'est retenue que si :
+    - sa confiance atteint `min_confidence` ;
+    - sa boîte couvre au moins `min_box_fraction` de la largeur ET de la
+      hauteur de l'image (un "visage" minuscule = objet confondu).
+
+    Retourne la boîte en pixels (x1, y1, x2, y2) ou None.
+    """
+    best = None
+    best_score = 0.0
+    for detection in detections:
+        categories = getattr(detection, "categories", [])
+        score = categories[0].score if categories else 0.0
+        if score < min_confidence:
+            continue
+        box = detection.bounding_box
+        if box.width < min_box_fraction * width:
+            continue
+        if box.height < min_box_fraction * height:
+            continue
+        if score > best_score:
+            best = detection
+            best_score = score
+    if best is None:
+        return None
+    bb = best.bounding_box
+    return (bb.origin_x, bb.origin_y, bb.origin_x + bb.width, bb.origin_y + bb.height)
+
+
+def _bounding_box(points) -> Tuple[int, int, int, int]:
+    xs = [p[0] for p in points]
+    ys = [p[1] for p in points]
+    return (int(min(xs)), int(min(ys)), int(max(xs)), int(max(ys)))
+
+
+def debug_draw(frame, result: FrameResult):
+    """Dessine sur une copie de l'image les boîtes de chaque détection.
+
+    Vert = visage, rouge = téléphone, orange = main. Utilisé uniquement
+    par la fenêtre « Voir la caméra » ; jamais appelé en usage normal.
+    """
+    shown = frame.copy()
+    if result.face_box is not None:
+        _draw_labeled_box(shown, result.face_box, _COLOR_FACE, "visage")
+    for box in result.phone_boxes:
+        _draw_labeled_box(shown, box, _COLOR_PHONE, "telephone")
+    for box in result.hand_boxes:
+        _draw_labeled_box(shown, box, _COLOR_HAND, "main")
+    return shown
+
+
+def _draw_labeled_box(frame, box, color, label: str) -> None:
+    x1, y1, x2, y2 = (int(v) for v in box)
+    cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+    cv2.putText(
+        frame, label, (x1, max(12, y1 - 6)), cv2.FONT_HERSHEY_SIMPLEX,
+        0.5, color, 1, cv2.LINE_AA,
+    )
 
 
 class Detector:
@@ -112,9 +184,18 @@ class Detector:
         mp_image = _MP_IMAGE(image_format=_MP_FORMAT.SRGB, data=rgb)
 
         face_result = self._face_detector.detect_for_video(mp_image, timestamp_ms)
-        face_found = len(face_result.detections) > 0
+        face_box = select_face(
+            face_result.detections,
+            width,
+            height,
+            self.config["face_min_confidence"],
+            self.config["face_min_box_fraction"],
+        )
+        face_found = face_box is not None
         face_score = (
-            face_result.detections[0].categories[0].score if face_found else 0.0
+            face_result.detections[0].categories[0].score
+            if face_result.detections
+            else 0.0
         )
 
         hand_result = self._hand_landmarker.detect_for_video(mp_image, timestamp_ms)
@@ -124,8 +205,11 @@ class Detector:
             _landmarks_to_pixels(hand, width, height)
             for hand in hand_result.hand_landmarks
         ]
+        hand_boxes = [_bounding_box(points) for points in hands_px]
 
-        forbidden_boxes: List[Tuple[int, int, int, int]] = []
+        # Objets de la liste noire (téléphone au départ), détectés séparément
+        # du visage : interdits uniquement s'ils sont tenus en main.
+        phone_boxes: List[Tuple[int, int, int, int]] = []
         if self.target_class_ids:
             predictions = self.yolo.predict(
                 frame_bgr,
@@ -135,11 +219,12 @@ class Detector:
             )
             for result in predictions:
                 for xyxy in result.boxes.xyxy.cpu().numpy():
-                    box = tuple(float(v) for v in xyxy)
-                    if self._held_in_hand(box, hands_px, width, height):
-                        forbidden_boxes.append(box)
+                    box = tuple(int(v) for v in xyxy)
+                    phone_boxes.append(box)
 
-        forbidden = len(forbidden_boxes) > 0
+        forbidden = any(
+            self._held_in_hand(box, hands_px, width, height) for box in phone_boxes
+        )
         observation = Observation(
             face_found=face_found,
             forbidden_in_hand=forbidden,
@@ -149,8 +234,9 @@ class Detector:
             observation=observation,
             face_found=face_found,
             face_score=face_score,
-            hands_count=len(hands_px),
-            forbidden_boxes=forbidden_boxes,
+            face_box=face_box,
+            phone_boxes=phone_boxes,
+            hand_boxes=hand_boxes,
         )
 
     # ------------------------------------------------------------------ #

@@ -12,6 +12,12 @@ _DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_PATH = os.path.join(_DIR, "config.json")
 
 DEFAULTS = {
+    # La présence se juge uniquement sur le visage : seuil de confiance
+    # minimal du détecteur de visage et taille minimale de la boîte
+    # (fraction de la largeur/hauteur de l'image). Un objet lointain ou
+    # mal reconnu sous ce seuil n'est jamais pris pour un visage.
+    "face_min_confidence": 0.60,
+    "face_min_box_fraction": 0.04,
     # Classes YOLO interdites : le chrono s'arrête si l'objet est tenu en main.
     # Ajoutez ici tout label COCO (ex. "book", "laptop"...).
     "blacklist_classes": ["cell phone"],
