@@ -1,0 +1,14 @@
+{
+  "blacklist_classes": [
+    "cell phone"
+  ],
+  "yolo_confidence": 0.4,
+  "hand_overlap_threshold": 0.3,
+  "hand_overlap_margin": 0.15,
+  "analysis_fps": 8,
+  "frames_to_change_state": 3,
+  "yolo_model": "yolov8n.pt",
+  "face_model": "models/blaze_face_short_range.tflite",
+  "hands_model": "models/hand_landmarker.task",
+  "database_path": "data/study_timer.db"
+}
