@@ -55,6 +55,7 @@ class StudyWidget(QWidget):
     start_clicked = pyqtSignal()
     stats_clicked = pyqtSignal()
     quit_clicked = pyqtSignal()
+    view_camera_toggled = pyqtSignal(bool)
     # Reçu depuis le thread d'analyse (connexion Qt, marshal automatique).
     analysis_received = pyqtSignal(object)
     setup_failed = pyqtSignal(str)
@@ -102,11 +103,17 @@ class StudyWidget(QWidget):
         buttons = QHBoxLayout()
         self._start_button = QPushButton("Démarrer")
         self._stats_button = QPushButton("Statistiques")
+        self._camera_button = QPushButton("Voir la caméra")
+        self._camera_button.setCheckable(True)
+        self._camera_button.setChecked(False)  # désactivé par défaut
+        self._camera_button.toggled.connect(self.view_camera_toggled)
         self._quit_button = QPushButton("Quitter")
         self._start_button.clicked.connect(self.start_clicked)
         self._stats_button.clicked.connect(self.stats_clicked)
         self._quit_button.clicked.connect(self.quit_clicked)
-        for button in (self._start_button, self._stats_button, self._quit_button):
+        for button in (
+            self._start_button, self._stats_button, self._camera_button, self._quit_button
+        ):
             buttons.addWidget(button)
         layout.addLayout(buttons)
 
@@ -175,7 +182,17 @@ class StudyWidget(QWidget):
     def set_buttons_enabled(self, enabled: bool) -> None:
         self._start_button.setEnabled(enabled)
         self._stats_button.setEnabled(enabled)
+        self._camera_button.setEnabled(enabled)
         self._quit_button.setEnabled(enabled)
+
+    def is_camera_view_enabled(self) -> bool:
+        return self._camera_button.isChecked()
+
+    def set_camera_button_silently(self, checked: bool) -> None:
+        """Change l'état de la case sans émettre view_camera_toggled."""
+        self._camera_button.blockSignals(True)
+        self._camera_button.setChecked(checked)
+        self._camera_button.blockSignals(False)
 
     def on_setup_failed(self, message: str) -> None:
         """Appelable depuis un thread non Qt."""

@@ -34,11 +34,29 @@ Créé au premier lancement, modifiable à la main :
 
 - `blacklist_classes` : classes YOLO interdites. Par défaut
   `["cell phone"]` ; ajoutez tout label COCO (`book`, `laptop`…).
+- `face_min_confidence` : confiance minimale pour accepter un visage
+  (0,6 par défaut). En dessous, aucun objet n'est pris pour un visage.
+- `face_min_box_fraction` : taille minimale de la boîte du visage en
+  fraction de l'image (0,04 par défaut) : un « visage » minuscule,
+  c'est un objet confondu, pas une présence.
 - `frames_to_change_state` : images consécutives exigées pour un
   changement d'état (3 par défaut ; mettre 1 pour un arrêt instantané).
 - `analysis_fps` : cadence d'analyse de la webcam.
 - `hand_overlap_threshold` / `hand_overlap_margin` : sensibilité de la
   détection « objet en main ».
+
+## Fonctions
+
+- **Statistiques** : s'ouvre en fenêtre séparée (800×500, redimensionnable,
+  centrée, au premier plan) — graphiques jour / semaine / mois + série
+  de jours consécutifs.
+- **Voir la caméra** : case à cocher du widget (désactivée par défaut).
+  Ouvre une fenêtre séparée avec le flux en direct et les détections
+  dessinées : visage en vert, téléphone en rouge, mains en orange.
+  Bordure de l'image verte quand le comptage est actif, rouge avec la
+  raison en haut sinon. Désactivée, l'affichage s'arrête et l'analyse
+  continue sans coût supplémentaire ; aucune image n'est jamais
+  enregistrée sur disque.
 
 ## Structure
 
@@ -47,6 +65,7 @@ Créé au premier lancement, modifiable à la main :
 - `engine.py` — machine à états pure (compter ou pas, anti-clignotement)
 - `database.py` — intervalles SQLite + statistiques
 - `ui_widget.py` — widget flottant (voyant, temps du jour, boutons)
+- `ui_camera.py` — fenêtre « Voir la caméra » (flux + boîtes de détection)
 - `ui_stats.py` — fenêtre statistiques (jour / semaine / mois + série)
 - `main.py` — câblage de tout le monde
 

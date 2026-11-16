@@ -10,6 +10,7 @@ import threading
 import time
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Any, Callable, Optional
 
 import cv2
 
@@ -23,10 +24,16 @@ class CameraError(Exception):
 
 @dataclass
 class AnalysisUpdate:
-    """Ce que le thread envoie à l'interface après chaque image analysée."""
+    """Ce que le thread envoie à l'interface après chaque image analysée.
+
+    `frame` ne contient l'image que lorsque l'affichage « Voir la
+    caméra » est actif ; sinon il reste None et l'image est libérée
+    immédiatement (aucun coût de copie, aucune écriture disque).
+    """
 
     state: EngineState
     result: FrameResult
+    frame: Optional[Any] = None
 
 
 class Camera:
@@ -73,6 +80,7 @@ class AnalysisWorker(threading.Thread):
         on_update,   # callable(AnalysisUpdate)   — appelé à chaque image
         on_error,    # callable(str)              — appelé une fois en cas de panne
         analysis_fps: float = 8.0,
+        camera_factory: Optional[Callable[[int], Any]] = None,
     ):
         super().__init__(daemon=True)
         self.camera_index = camera_index
@@ -82,10 +90,13 @@ class AnalysisWorker(threading.Thread):
         self.on_error = on_error
         self._period = 1.0 / max(analysis_fps, 0.5)
         self._stop_event = threading.Event()
+        # Activé uniquement pour l'affichage « Voir la caméra ».
+        self.send_frames = threading.Event()
+        self._camera_factory = camera_factory or (lambda index: Camera(index))
 
     def run(self) -> None:
         try:
-            with Camera(self.camera_index) as camera:
+            with self._camera_factory(self.camera_index) as camera:
                 self._loop(camera)
         except CameraError as error:
             self.on_error(str(error))
@@ -100,7 +111,10 @@ class AnalysisWorker(threading.Thread):
             timestamp_ms = int(time.monotonic() * 1000)  # croissant, exigé MediaPipe
             result = self.detector.analyze(frame, timestamp_ms, now_wall)
             state = self.engine.process(result.observation)
-            self.on_update(AnalysisUpdate(state=state, result=result))
+            update = AnalysisUpdate(state=state, result=result)
+            if self.send_frames.is_set():
+                update.frame = frame
+            self.on_update(update)
 
             next_tick += self._period
             delay = next_tick - time.monotonic()
