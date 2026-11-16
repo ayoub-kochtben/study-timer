@@ -11,6 +11,17 @@ def make_db(tmp_path):
     return Database(str(tmp_path / "test.db"))
 
 
+def test_creates_missing_parent_directory(tmp_path):
+    """Reproduit le crash 'unable to open database file' : le dossier
+    parent (ex. data/) n'existe pas encore au premier lancement."""
+    nested_dir = tmp_path / "data" / "profond"
+    db_path = str(nested_dir / "study_timer.db")
+    assert not nested_dir.exists()
+    db = Database(db_path)
+    db.close()
+    assert os.path.exists(db_path)
+
+
 def test_empty_database_returns_zero(db_in_tmp):
     db = db_in_tmp
     assert db.seconds_for_day(date(2026, 11, 16)) == 0.0

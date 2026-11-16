@@ -6,6 +6,7 @@ découpé en un enregistrement par jour calendaire pour que les
 statistiques par jour soient exactes.
 """
 
+import os
 import sqlite3
 from datetime import date, datetime, timedelta
 
@@ -27,6 +28,11 @@ def _fmt(dt: datetime) -> str:
 class Database:
     def __init__(self, path: str):
         self.path = path
+        # SQLite ne crée pas les dossiers manquants : on les crée d'abord
+        # (ex. "data/" pour data/study_timer.db), sinon OperationalError.
+        parent = os.path.dirname(os.path.abspath(path))
+        if parent:
+            os.makedirs(parent, exist_ok=True)
         # check_same_thread=False : les écritures se font depuis le thread
         # d'analyse, les lectures depuis l'interface. Les transactions sont
         # couvertes par sqlite (GIL) et restent minuscules ici.
