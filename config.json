@@ -2,11 +2,12 @@
   "blacklist_classes": [
     "cell phone"
   ],
-  "yolo_confidence": 0.4,
+  "yolo_confidence": 0.25,
+  "yolo_imgsz": 960,
   "face_min_confidence": 0.6,
   "face_min_box_fraction": 0.04,
   "hand_overlap_threshold": 0.3,
-  "hand_overlap_margin": 0.15,
+  "hand_overlap_margin": 0.25,
   "analysis_fps": 8,
   "frames_to_change_state": 3,
   "yolo_model": "yolov8n.pt",

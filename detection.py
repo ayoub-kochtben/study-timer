@@ -209,11 +209,13 @@ class Detector:
 
         # Objets de la liste noire (téléphone au départ), détectés séparément
         # du visage : interdits uniquement s'ils sont tenus en main.
+        # imgsz élargi : un téléphone tenu à distance est un petit objet.
         phone_boxes: List[Tuple[int, int, int, int]] = []
         if self.target_class_ids:
             predictions = self.yolo.predict(
                 frame_bgr,
                 conf=self.config["yolo_confidence"],
+                imgsz=self.config["yolo_imgsz"],
                 classes=self.target_class_ids,
                 verbose=False,
             )

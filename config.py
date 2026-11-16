@@ -21,14 +21,19 @@ DEFAULTS = {
     # Classes YOLO interdites : le chrono s'arrête si l'objet est tenu en main.
     # Ajoutez ici tout label COCO (ex. "book", "laptop"...).
     "blacklist_classes": ["cell phone"],
-    # Seuil de confiance YOLO pour retenir une détection.
-    "yolo_confidence": 0.40,
+    # Seuil de confiance YOLO pour retenir une détection. Bas : un
+    # téléphone tenu à distance est petit, flou, souvent en mouvement.
+    "yolo_confidence": 0.25,
+    # Taille d'entrée YOLO (pixels). Plus grand = meilleurs petits objets,
+    # analyse plus lente (960 ≈ 5-6 images/s sur CPU).
+    "yolo_imgsz": 960,
     # Fraction minimale des points de main MediaPipe devant tomber dans la
     # boîte d'un objet blacklisté pour le considérer "en main".
     "hand_overlap_threshold": 0.30,
     # Marge (en fraction de la taille de la boîte) élargie autour de la boîte
-    # YOLO pour le test de chevauchement avec la main.
-    "hand_overlap_margin": 0.15,
+    # YOLO pour le test de chevauchement avec la main. Grande marge =
+    # tolère les petits mouvements du téléphone en main.
+    "hand_overlap_margin": 0.25,
     # Cadence d'analyse de la webcam (images par seconde).
     "analysis_fps": 8,
     # Anti-clignotement : un changement d'état n'est appliqué qu'après ce
