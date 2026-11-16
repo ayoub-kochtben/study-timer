@@ -27,7 +27,10 @@ def _fmt(dt: datetime) -> str:
 class Database:
     def __init__(self, path: str):
         self.path = path
-        self.conn = sqlite3.connect(path)
+        # check_same_thread=False : les écritures se font depuis le thread
+        # d'analyse, les lectures depuis l'interface. Les transactions sont
+        # couvertes par sqlite (GIL) et restent minuscules ici.
+        self.conn = sqlite3.connect(path, check_same_thread=False)
         self.conn.executescript(_SCHEMA)
         self.conn.commit()
 
