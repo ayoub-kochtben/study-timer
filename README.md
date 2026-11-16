@@ -39,8 +39,11 @@ Créé au premier lancement, modifiable à la main :
 - `face_min_box_fraction` : taille minimale de la boîte du visage en
   fraction de l'image (0,04 par défaut) : un « visage » minuscule,
   c'est un objet confondu, pas une présence.
-- `frames_to_change_state` : images consécutives exigées pour un
-  changement d'état (3 par défaut ; mettre 1 pour un arrêt instantané).
+- `frames_to_start_counting` : images favorables consécutives exigées
+  pour *commencer* à compter (3 par défaut : évite les faux départs).
+- `frames_to_stop_counting` : images défavorables avant *arrêt* —
+  **1 par défaut : arrêt immédiat, sans délai ni tolérance** comme le
+  veut le cahier des charges. Montez à 2-3 en cas de clignotements.
 - `analysis_fps` : cadence d'analyse de la webcam.
 - `hand_overlap_threshold` / `hand_overlap_margin` : sensibilité de la
   détection « objet en main ».

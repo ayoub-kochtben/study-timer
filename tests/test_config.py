@@ -28,7 +28,7 @@ def test_load_config_merges_user_overrides(tmp_path):
     assert cfg["blacklist_classes"] == ["cell phone", "book"]
     assert cfg["analysis_fps"] == 5
     # Les clés non surchargées gardent leur valeur par défaut.
-    assert cfg["frames_to_change_state"] == DEFAULTS["frames_to_change_state"]
+    assert cfg["frames_to_start_counting"] == DEFAULTS["frames_to_start_counting"]
 
 
 def test_load_config_ignores_unknown_and_broken_keys(tmp_path):

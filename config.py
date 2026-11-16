@@ -36,9 +36,11 @@ DEFAULTS = {
     "hand_overlap_margin": 0.25,
     # Cadence d'analyse de la webcam (images par seconde).
     "analysis_fps": 8,
-    # Anti-clignotement : un changement d'état n'est appliqué qu'après ce
-    # nombre d'images consécutives allant dans le même sens.
-    "frames_to_change_state": 3,
+    # Anti-faux départ : le comptage démarre après N images favorables.
+    "frames_to_start_counting": 3,
+    # Arrêt immédiat dès 1 image contraire (spécification : « sans délai
+    # ni tolérance »). Mettre 2-3 si des clignotements gênent.
+    "frames_to_stop_counting": 1,
     # Chemins des modèles (téléchargés une fois, ignorés par git).
     "yolo_model": "yolov8n.pt",
     "face_model": "models/blaze_face_short_range.tflite",

@@ -1,9 +1,11 @@
 """Machine à états du compteur d'étude — pure, testable sans caméra.
 
-Règles :
+Règles (asymétriques, fidèles au cahier des charges) :
 - compter si un visage est détecté ET rien de la liste noire n'est en main ;
-- un changement d'état n'est appliqué qu'après `frames_to_change_state`
-  observations consécutives allant dans le même sens (anti-clignotement) ;
+- DÉMARRAGE du comptage après `frames_to_start_counting` bonnes images
+  consécutives (anti-faux départ, ex. détection éclair) ;
+- ARRÊT après `frames_to_stop_counting` images contraires — 1 par défaut :
+  immédiat, sans délai ni tolérance ;
 - chaque période continue de comptage devient un intervalle (début, fin)
   transmis à `on_interval(start, fin)` — rien d'autre n'est stocké.
 """
@@ -42,12 +44,16 @@ class EngineState:
 class StudyEngine:
     def __init__(
         self,
-        frames_to_change_state: int = 3,
+        frames_to_start_counting: int = 3,
+        frames_to_stop_counting: int = 1,
         on_interval: Optional[Callable[[datetime, datetime], None]] = None,
     ):
-        if frames_to_change_state < 1:
-            raise ValueError("frames_to_change_state doit valoir au moins 1")
-        self.frames_to_change_state = frames_to_change_state
+        if frames_to_start_counting < 1 or frames_to_stop_counting < 1:
+            raise ValueError(
+                "les deux seuils doivent valoir au moins 1"
+            )
+        self.frames_to_start_counting = frames_to_start_counting
+        self.frames_to_stop_counting = frames_to_stop_counting
         self.on_interval = on_interval
         # Verrou unique : process() (thread d'analyse) et stop()/start()
         # (thread de l'interface) ne doivent jamais s'entremêler, sinon
@@ -74,7 +80,12 @@ class StudyEngine:
                 self._pending_count += 1
 
             changed = False
-            if self._pending_count >= self.frames_to_change_state and should_count != self.counting:
+            required = (
+                self.frames_to_start_counting
+                if should_count
+                else self.frames_to_stop_counting
+            )
+            if self._pending_count >= required and should_count != self.counting:
                 self._apply_transition(should_count, obs.timestamp)
                 changed = True
 

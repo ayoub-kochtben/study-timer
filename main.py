@@ -73,7 +73,8 @@ class Application:
             try:
                 detector = Detector(self.config)
                 engine = StudyEngine(
-                    frames_to_change_state=self.config["frames_to_change_state"],
+                    frames_to_start_counting=self.config["frames_to_start_counting"],
+                    frames_to_stop_counting=self.config["frames_to_stop_counting"],
                     on_interval=self.database.insert_interval,
                 )
                 engine.start(datetime.now())
