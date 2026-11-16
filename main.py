@@ -109,7 +109,7 @@ class Application:
 
     def show_stats(self):
         if self._stats_window is None:
-            self._stats_window = StatsWindow(self.database, parent=self.widget)
+            self._stats_window = StatsWindow(self.database)
         self._stats_window.refresh()
         self._stats_window.show()
         self._stats_window.raise_()

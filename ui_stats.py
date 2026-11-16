@@ -8,7 +8,9 @@ import matplotlib
 matplotlib.use("QtAgg")
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
 from matplotlib.figure import Figure
+from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
+    QApplication,
     QComboBox,
     QHBoxLayout,
     QLabel,
@@ -34,10 +36,16 @@ def _fmt_hm(seconds: float) -> str:
 
 class StatsWindow(QWidget):
     def __init__(self, database: Database, parent=None):
-        super().__init__(parent)
+        # Toujours une fenêtre indépendante : parentée au petit widget
+        # flottant, elle héritait de son rendu compact et restait illisible.
+        super().__init__(None)
         self._database = database
         self.setWindowTitle("Study Timer — Statistiques")
-        self.resize(860, 520)
+        self.setWindowFlags(
+            Qt.WindowType.Window | Qt.WindowType.WindowStaysOnTopHint
+        )
+        self.resize(800, 500)
+        self._center_on_screen()
 
         layout = QVBoxLayout(self)
 
@@ -65,6 +73,16 @@ class StatsWindow(QWidget):
         self.refresh()
 
     # ------------------------------------------------------------------ #
+    def _center_on_screen(self):
+        screen = QApplication.primaryScreen()
+        if screen is None:
+            return
+        area = screen.availableGeometry()
+        self.move(
+            area.center().x() - self.width() // 2,
+            area.center().y() - self.height() // 2,
+        )
+
     def refresh(self):
         mode = self._range_combo.currentIndex()
         today = date.today()
