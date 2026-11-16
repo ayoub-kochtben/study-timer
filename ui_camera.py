@@ -43,6 +43,10 @@ class CameraViewWindow(QWidget):
         self._video_label.setMinimumSize(640, 480)
         layout.addWidget(self._video_label, stretch=1)
 
+        # État initial : pas encore d'image tant que la surveillance n'a
+        # pas démarré (le flux vient du thread d'analyse).
+        self._reason_label.setText("Démarrez la surveillance pour afficher la caméra")
+
     # ------------------------------------------------------------------ #
     def on_analysis(self, update) -> None:
         """Passe par le signal analysis_received (thread d'analyse → Qt)."""

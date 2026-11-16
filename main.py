@@ -33,6 +33,11 @@ class ErrorRelay(QObject):
 
 class Application:
     def __init__(self):
+        # Le widget principal est une fenêtre de type Tool, que Qt ne
+        # compte pas comme une « vraie » fenêtre : sans cette ligne,
+        # fermer les statistiques (ou la caméra) fermerait toute
+        # l'application (quitOnLastWindowClosed).
+        QApplication.instance().setQuitOnLastWindowClosed(False)
         self.config = load_config(os.path.join(_DIR, "config.json"))
         self.database = Database(os.path.join(_DIR, self.config["database_path"]))
         self.detector: Detector | None = None
@@ -43,6 +48,7 @@ class Application:
         self.widget = StudyWidget()
         self.widget.start_clicked.connect(self.toggle_monitoring)
         self.widget.stats_clicked.connect(self.show_stats)
+        self.widget.view_camera_toggled.connect(self.toggle_camera_view)
         self.widget.quit_clicked.connect(self.quit)
         self.widget.set_today_base(self.database.seconds_for_day(date.today()))
         self._stats_window: StatsWindow | None = None
@@ -164,6 +170,11 @@ class Application:
         if self._camera_window is not None:
             self._camera_window.close()
         self.widget.close()
+        # quitOnLastWindowClosed est désactivé : la fermeture des fenêtres
+        # ne quitte plus Qt toute seule, on le demande explicitement.
+        from PyQt6.QtWidgets import QApplication
+
+        QApplication.quit()
 
     def run(self):
         self.widget.show()
@@ -172,8 +183,12 @@ class Application:
 
 def main():
     app = QApplication(sys.argv)
+    # Le drapeau est aussi posé dans Application.__init__ (testable) ;
+    # on le garantit ici dès la création de l'objet applicatif.
+    app.setQuitOnLastWindowClosed(False)
     application = Application()
     application.run()
+    app.aboutToQuit.connect(application.database.close)
     sys.exit(app.exec())
 
 
