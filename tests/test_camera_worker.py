@@ -19,7 +19,7 @@ def test_stop_while_processing_does_not_corrupt_state():
     « redémarre à 1,36 s »). L'intervalle doit rester cohérent."""
     intervals = []
     T0 = datetime(2026, 11, 17, 9, 0, 0)
-    engine = StudyEngine(frames_to_change_state=1, on_interval=lambda s, e: intervals.append((s, e)))
+    engine = StudyEngine(frames_to_start_counting=1, frames_to_stop_counting=1, on_interval=lambda s, e: intervals.append((s, e)))
     engine.start(T0)
 
     stopper_hit = threading.Event()
