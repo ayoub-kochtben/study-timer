@@ -112,6 +112,21 @@ class StudyEngine:
             self._pending_count = 0
             self.reason = Reason.FACE_MISSING
 
+    def split(self, now: datetime, on_split: Optional[Callable[[], None]] = None) -> None:
+        """Changement de matière en pleine session : clôture l'intervalle
+        en cours (il reste à l'ancienne matière) et en rouvre un à `now`.
+
+        `on_split` est appelé sous le verrou, entre les deux : c'est là
+        qu'on bascule la matière, pour qu'aucune image analysée entre-temps
+        ne range du temps dans la mauvaise matière.
+        """
+        with self._lock:
+            if self.counting and self.interval_start is not None:
+                self._close_interval(now)
+                self.interval_start = now
+            if on_split is not None:
+                on_split()
+
     # ------------------------------------------------------------------ #
     def _blocking_reason(self, obs: Observation) -> Reason:
         if obs.forbidden_in_hand:

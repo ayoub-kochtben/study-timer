@@ -1,4 +1,4 @@
-"""Fenêtre statistiques : graphiques jour / semaine / mois + série en cours."""
+"""Fenêtre statistiques : graphiques jour / mois + temps du jour par matière."""
 
 import os
 from datetime import date, datetime, timedelta
@@ -8,12 +8,13 @@ import matplotlib
 matplotlib.use("QtAgg")
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
 from matplotlib.figure import Figure
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QApplication,
     QComboBox,
     QHBoxLayout,
     QLabel,
+    QMessageBox,
     QPushButton,
     QVBoxLayout,
     QWidget,
@@ -23,18 +24,25 @@ from database import Database
 
 _LIGHT_BG = "#2b2b33"
 _ACCENT = "#7aa2f7"
+_TOTAL = "Global"  # tout le temps du jour, toutes matières confondues
 
 
 def _fmt_hm(seconds: float) -> str:
-    seconds = int(seconds)
+    """Durée lisible, à la seconde près : « 9 s », « 2 min 05 s », « 1 h 02 min 05 s »."""
+    seconds = int(round(seconds))
     h, rem = divmod(seconds, 3600)
-    m = rem // 60
+    m, s = divmod(rem, 60)
     if h:
-        return f"{h} h {m:02d}"
-    return f"{m} min"
+        return f"{h} h {m:02d} min {s:02d} s"
+    if m:
+        return f"{m} min {s:02d} s"
+    return f"{s} s"
 
 
 class StatsWindow(QWidget):
+    # L'effacement est fait par main.py (il doit aussi couper la session en cours).
+    clear_requested = pyqtSignal()
+
     def __init__(self, database: Database, parent=None):
         # Toujours une fenêtre indépendante : parentée au petit widget
         # flottant, elle héritait de son rendu compact et restait illisible.
@@ -52,11 +60,20 @@ class StatsWindow(QWidget):
         top = QHBoxLayout()
         self._range_combo = QComboBox()
         self._range_combo.addItems(
-            ["30 derniers jours", "12 dernières semaines", "12 derniers mois"]
+            ["30 derniers jours", "12 derniers mois"]
         )
         self._range_combo.currentIndexChanged.connect(self.refresh)
         top.addWidget(self._range_combo)
+        # Graphique global (toutes matières) ou d'une seule matière.
+        self._subject_combo = QComboBox()
+        self._subject_combo.currentIndexChanged.connect(self._on_subject_selected)
+        top.addWidget(self._subject_combo)
+        self._filling_subjects = False
         top.addStretch()
+        clear_button = QPushButton("Effacer aujourd'hui")
+        clear_button.setToolTip("Efface le temps d'aujourd'hui et toutes les matières")
+        clear_button.clicked.connect(self._confirm_clear)
+        top.addWidget(clear_button)
         close_button = QPushButton("Fermer")
         close_button.clicked.connect(self.close)
         top.addWidget(close_button)
@@ -66,9 +83,10 @@ class StatsWindow(QWidget):
         self._canvas = FigureCanvasQTAgg(self._figure)
         layout.addWidget(self._canvas, stretch=1)
 
-        self._streak_label = QLabel()
-        self._streak_label.setStyleSheet("font-size: 14px; font-weight: 600;")
-        layout.addWidget(self._streak_label)
+        self._today_subjects_label = QLabel()
+        self._today_subjects_label.setWordWrap(True)
+        self._today_subjects_label.setStyleSheet("font-size: 13px;")
+        layout.addWidget(self._today_subjects_label)
 
         self.refresh()
 
@@ -83,27 +101,49 @@ class StatsWindow(QWidget):
             area.center().y() - self.height() // 2,
         )
 
+    def _confirm_clear(self):
+        answer = QMessageBox.question(
+            self,
+            "Effacer",
+            "Effacer tout le temps d'aujourd'hui et toutes les matières "
+            "enregistrées ?\n\nCette action est définitive.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer == QMessageBox.StandardButton.Yes:
+            self.clear_requested.emit()
+
+    def _on_subject_selected(self, _index):
+        if not self._filling_subjects:
+            self.refresh()
+
+    def _fill_subjects(self):
+        """Recharge la liste « Global + matières déjà tapées » sans perdre le choix."""
+        current = self._subject_combo.currentText()
+        self._filling_subjects = True
+        self._subject_combo.clear()
+        self._subject_combo.addItem(_TOTAL)
+        self._subject_combo.addItems(self._database.subjects())
+        index = self._subject_combo.findText(current)
+        self._subject_combo.setCurrentIndex(max(index, 0))
+        self._filling_subjects = False
+
     def refresh(self):
+        self._fill_subjects()
+        chosen = self._subject_combo.currentText()
+        if chosen in ("", _TOTAL):
+            subject = None           # tout confondu
+        else:
+            subject = chosen
+        scope = chosen or _TOTAL
         mode = self._range_combo.currentIndex()
         today = date.today()
         if mode == 0:
             first = today - timedelta(days=29)
-            data = self._database.daily_seconds(first, today)
+            data = self._database.daily_seconds(first, today, subject)
             labels = [d.strftime("%d/%m") for d, _ in data]
-            values = [s / 3600 for _, s in data]
-            title = "Temps d'étude par jour (heures)"
-        elif mode == 1:
-            # Semaines calées sur lundi.
-            monday = today - timedelta(days=today.weekday())
-            labels, values = [], []
-            for week in range(11, -1, -1):
-                week_start = monday - timedelta(weeks=week)
-                days = self._database.daily_seconds(
-                    week_start, week_start + timedelta(days=6)
-                )
-                labels.append(week_start.strftime("S %d/%m"))
-                values.append(sum(s for _, s in days) / 3600)
-            title = "Temps d'étude par semaine (heures)"
+            values = [s for _, s in data]
+            title = f"Temps d'étude par jour — {scope}"
         else:
             labels, values = [], []
             months = []
@@ -118,22 +158,35 @@ class StatsWindow(QWidget):
                     last_day = (month + timedelta(days=31)).replace(day=1) - timedelta(
                         days=1
                     )
-                days = self._database.daily_seconds(month, last_day)
+                days = self._database.daily_seconds(month, last_day, subject)
                 labels.append(month.strftime("%m/%Y"))
-                values.append(sum(s for _, s in days) / 3600)
-            title = "Temps d'étude par mois (heures)"
+                values.append(sum(s for _, s in days))
+            title = f"Temps d'étude par mois — {scope}"
 
         self._draw_bars(labels, values, title)
 
-        streak = self._database.current_streak(today)
-        today_seconds = self._database.seconds_for_day(today)
-        self._streak_label.setText(
-            f"Série en cours : {streak} jour(s) consécutif(s) — "
-            f"aujourd'hui : {_fmt_hm(today_seconds)}"
-        )
+        global_today = self._database.seconds_for_day(today)  # tout confondu
+
+        today_by_subject = self._database.seconds_by_subject(today, today)
+        if today_by_subject:
+            parts = [f"{name} : {_fmt_hm(sec)}" for name, sec in today_by_subject.items()]
+        else:
+            parts = []
+        parts.insert(0, f"Global : {_fmt_hm(global_today)}")
+        self._today_subjects_label.setText("Aujourd'hui : " + "  ·  ".join(parts))
 
     # ------------------------------------------------------------------ #
-    def _draw_bars(self, labels, values, title):
+    def _draw_bars(self, labels, seconds_values, title):
+        # Unité de l'axe adaptée : une journée de 40 s reste lisible
+        # (en heures elle tomberait à 0,01 et la barre serait invisible).
+        peak = max(seconds_values, default=0.0)
+        if peak >= 3600:
+            divisor, unit_name = 3600, "heures"
+        elif peak >= 60:
+            divisor, unit_name = 60, "minutes"
+        else:
+            divisor, unit_name = 1, "secondes"
+        values = [value / divisor for value in seconds_values]
         self._figure.clear()
         axes = self._figure.add_subplot(111)
         axes.set_facecolor(_LIGHT_BG)
@@ -149,10 +202,11 @@ class StatsWindow(QWidget):
         axes.grid(axis="y", color="#4a4a58", alpha=0.4)
         ymax = max(values, default=0.0)
         axes.set_ylim(0, ymax * 1.15 if ymax else 1)
+        axes.set_ylabel(unit_name, color="#b8b8c2")
         for index, value in enumerate(values):
             if value > 0:
                 axes.text(
-                    index, value, _fmt_hm(value * 3600),
+                    index, value, _fmt_hm(value * divisor),
                     ha="center", va="bottom", fontsize=7, color="#f0f0f0",
                 )
         self._figure.tight_layout()

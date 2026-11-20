@@ -45,18 +45,52 @@ class Application:
         self.relay = ErrorRelay()
         self.relay.error_occurred.connect(self._on_worker_error)
 
-        self.widget = StudyWidget()
+        self.widget = StudyWidget(
+            daily_goal_hours=self.config.get("daily_goal_hours", 3),
+        )
+        self.widget.subject_changed.connect(self._on_subject_changed)
+        # Matière à laquelle le temps de la session en cours est attribué.
+        self._session_subject = ""
         self.widget.start_clicked.connect(self.toggle_monitoring)
         self.widget.stats_clicked.connect(self.show_stats)
         self.widget.view_camera_toggled.connect(self.toggle_camera_view)
         self.widget.quit_clicked.connect(self.quit)
-        self.widget.set_today_base(self.database.seconds_for_day(date.today()))
+        self._refresh_today()
         self._stats_window: StatsWindow | None = None
         self._camera_window: CameraViewWindow | None = None
 
     # ------------------------------------------------------------------ #
     # Démarrage / arrêt de la surveillance
     # ------------------------------------------------------------------ #
+    def _refresh_today(self):
+        """Temps du jour en base : total + compteur de la matière tapée
+        (matière vide = compteur « Global », le temps sans matière)."""
+        today = date.today()
+        subject = self.widget.current_subject()
+        self.widget.set_today_base(
+            self.database.seconds_for_day(today),
+            self.database.seconds_for_day(today, subject),
+        )
+
+    def _save_interval(self, start: datetime, end: datetime) -> None:
+        self.database.insert_interval(start, end, self._session_subject)
+
+    def _on_subject_changed(self, subject: str) -> None:
+        """Matière changée : le temps déjà compté reste à l'ancienne matière,
+        la suite va à la nouvelle (chaque matière a son propre compteur)."""
+        worker = self.worker
+        if worker is not None:
+            now = datetime.now()
+
+            def switch():
+                self._session_subject = subject
+
+            worker.engine.split(now, switch)
+            self.widget.restart_session_at(now)
+        else:
+            self._session_subject = subject
+        self._refresh_today()
+
     def toggle_monitoring(self):
         if self.worker is None:
             self._start_monitoring()
@@ -65,6 +99,8 @@ class Application:
 
     def _start_monitoring(self):
         view_enabled = self.widget.is_camera_view_enabled()
+        self.widget.flush_subject()
+        self._session_subject = self.widget.current_subject()
         self.widget.set_running(True)
         self.widget.set_status("Chargement des modèles…")
         self.widget.set_buttons_enabled(False)
@@ -75,7 +111,7 @@ class Application:
                 engine = StudyEngine(
                     frames_to_start_counting=self.config["frames_to_start_counting"],
                     frames_to_stop_counting=self.config["frames_to_stop_counting"],
-                    on_interval=self.database.insert_interval,
+                    on_interval=self._save_interval,
                 )
                 engine.start(datetime.now())
                 worker = AnalysisWorker(
@@ -115,15 +151,28 @@ class Application:
             self._camera_window.close()
         self.widget.set_running(False)
         self.widget.set_buttons_enabled(True)
-        self.widget.set_today_base(self.database.seconds_for_day(date.today()))
+        self._refresh_today()
 
     def _on_worker_error(self, message: str):
         self._stop_monitoring()
         QMessageBox.critical(self.widget, "Study Timer", message)
 
+    def clear_today(self):
+        """Efface aujourd'hui + les matières. Une session en cours est
+        coupée maintenant : le temps d'avant est effacé, la suite compte."""
+        now = datetime.now()
+        if self.worker is not None:
+            self.worker.engine.split(now)
+            self.widget.restart_session_at(now)
+        self.database.clear_today_and_subjects(now.date())
+        self._refresh_today()
+        if self._stats_window is not None:
+            self._stats_window.refresh()
+
     def show_stats(self):
         if self._stats_window is None:
             self._stats_window = StatsWindow(self.database)
+            self._stats_window.clear_requested.connect(self.clear_today)
         self._stats_window.refresh()
         self._stats_window.show()
         self._stats_window.raise_()

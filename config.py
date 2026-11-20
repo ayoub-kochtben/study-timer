@@ -45,6 +45,9 @@ DEFAULTS = {
     "yolo_model": "yolov8n.pt",
     "face_model": "models/blaze_face_short_range.tflite",
     "hands_model": "models/hand_landmarker.task",
+    # Objectif quotidien (heures) par matière : barre de progression
+    # affichée dans le widget quand une matière est tapée.
+    "daily_goal_hours": 3,
     # Base de données SQLite.
     "database_path": "data/study_timer.db",
 }

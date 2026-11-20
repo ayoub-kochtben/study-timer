@@ -14,5 +14,6 @@
   "yolo_model": "yolov8n.pt",
   "face_model": "models/blaze_face_short_range.tflite",
   "hands_model": "models/hand_landmarker.task",
+  "daily_goal_hours": 3,
   "database_path": "data/study_timer.db"
 }
